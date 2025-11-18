@@ -48,13 +48,22 @@ def find_most_recent_price(items):
 st.title("Calculadora de Preços (Estimativa) - Azure ☁️")
 
 # --- FILTRO 1: REGIÃO ---
-regioes_azure = [
-    'eastus', 'westeurope', 'eastasia', 'brazilsouth', 'centralindia'
-]
-region_choice = st.selectbox(
+# Usamos um dicionário para mapear Nomes Amigáveis
+regioes_map = {
+    'Leste (EUA)': 'eastus',
+    'Oeste (Europa)': 'westeurope',
+    'Leste (Ásia)': 'eastasia',
+    'Sul (Brasil)': 'brazilsouth',
+    'Central (Índia)': 'centralindia'
+}
+
+# O selectbox agora mostra os nomes amigáveis (as "chaves")
+region_display = st.selectbox(
     label="Escolha uma Região do Azure:",
-    options=regioes_azure
+    options=regioes_map.keys()
 )
+# Mas o valor que usamos para a API é o "valor" do dicionário
+region_choice = regioes_map[region_display]
 
 # --- FILTRO 2: SERVIÇO ---
 # *** AQUI ESTÁ A CORREÇÃO PARA O PROBLEMA 1 ***
@@ -63,43 +72,54 @@ servicos_azure = [
     'Virtual Machines', 
     'Storage',       # O nome correto para Armazenamento
     'SQL Database',       # O nome correto para o Banco de Dados SQL
-    'Azure Cosmos DB'
+    'Azure Cosmos DB',
+    'Cognitive Services'  # <-- Correto
 ]
 service_choice = st.selectbox(
     label="Escolha um Serviço do Azure:",
     options=servicos_azure
 )
 
-st.write(f"Você selecionou: **{service_choice}** em **{region_choice}**")
+# st.write(f"Você selecionou: **{service_choice}** em **{region_display}**")
 
 
 if st.button("Buscar Preços Agora"):
     
-    with st.spinner(f"Buscando dados para '{service_choice}' em '{region_choice}'..."):
+    with st.spinner(f"Buscando dados para '{service_choice}' em '{region_display}'..."):
         items = fetch_prices(region_choice, service_choice) 
 
     if items:
-        # *** AQUI ESTÁ A CORREÇÃO PARA O PROBLEMA 2 ***
-        # Em vez de 'primeiro_item = items[0]'
-        most_recent_item = find_most_recent_price(items)
         
-        if most_recent_item:
-            st.success(f"Sucesso! {len(items)} preços encontrados.")
+        # ---------------------------------------------------------
+        # AQUI ESTÁ A CORREÇÃO:
+        if service_choice == 'Cognitive Services':
+        # ---------------------------------------------------------
             
-            st.metric(
-                label=f"{most_recent_item.get('productName')}",
-                value=f"$ {most_recent_item.get('retailPrice')}",
-                delta="por " + most_recent_item.get('unitOfMeasure')
-            )
+            # SE FOR SERVIÇOS COGNITIVOS:
+            st.success(f"Sucesso! Encontramos {len(items)} itens para Cognitive Services.")
+            st.write("Abaixo estão os dados brutos da API. Role a tabela para a direita "
+                     "para encontrar a coluna 'meterName'.")
             
-            # Mostra a data do preço que estamos vendo
-            st.write(f"Preço ativo desde: {most_recent_item.get('effectiveStartDate')}")
-            
-            st.write("Amostra de todos os dados (incluindo antigos):")
-            st.dataframe(items[:10]) 
+            # Apenas mostramos a tabela inteira para investigação
+            st.dataframe(items) 
+        
         else:
-            st.warning("Dados encontrados, mas nenhum preço parece estar ativo para hoje.")
-
+            # SE FOR QUALQUER OUTRO SERVIÇO (VM, Storage, etc.):
+            most_recent_item = find_most_recent_price(items)
+            
+            if most_recent_item:
+                st.success(f"Sucesso! {len(items)} preços encontrados.")
+                
+                st.metric(
+                    label=f"{most_recent_item.get('productName')}",
+                    value=f"$ {most_recent_item.get('retailPrice')}",
+                    delta="por " + most_recent_item.get('unitOfMeasure')
+                )
+                
+                st.write(f"Preço ativo desde: {most_recent_item.get('effectiveStartDate')}")
+                st.dataframe(items[:10]) 
+            else:
+                st.warning("Dados encontrados, mas nenhum preço parece estar ativo para hoje.")
+            
     else:
-        st.error(f"Não foi possível buscar dados para '{service_choice}' em '{region_choice}'.")
-
+        st.error(f"Não foi possível buscar dados para '{service_choice}' em '{region_display}'.")
