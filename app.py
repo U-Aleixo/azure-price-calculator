@@ -61,7 +61,7 @@ region_choice = st.selectbox(
 # Usando os nomes corretos da API
 servicos_azure = [
     'Virtual Machines', 
-    'Blob Storage',       # O nome correto para Armazenamento
+    'Storage',       # O nome correto para Armazenamento
     'SQL Database',       # O nome correto para o Banco de Dados SQL
     'Azure Cosmos DB'
 ]
@@ -102,3 +102,4 @@ if st.button("Buscar Preços Agora"):
 
     else:
         st.error(f"Não foi possível buscar dados para '{service_choice}' em '{region_choice}'.")
+
