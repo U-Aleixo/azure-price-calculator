@@ -149,25 +149,53 @@ if items:
         else:
             st.warning("Nenhum item corresponde à sua busca.")
 
-        # 3. CALCULADORA
+        # --- CALCULADORA INTELIGENTE (SUBSTITUA A PARTIR DAQUI) ---
         st.markdown("---")
         st.subheader("🧮 Calculadora de Custo (Tokens)")
-        st.caption("Use os valores da tabela acima ('retailPrice') para simular.")
+        st.caption("Selecione abaixo quais modelos usar para preencher os preços automaticamente.")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**Entrada (Input)**")
-            price_input = st.number_input("Preço por 1K Tokens Entrada ($):", value=0.0050, format="%.6f")
+        # Criar lista de opções amigáveis para o Selectbox
+        opcoes_modelos = {f"{item['skuName']} | $ {item['retailPrice']}": item['retailPrice'] for item in filtered_items}
+        lista_opcoes = ["-- Digitar Manualmente --"] + list(opcoes_modelos.keys())
+
+        col_sel1, col_sel2 = st.columns(2)
+        
+        # Valores padrão
+        val_input_default = 0.0050
+        val_output_default = 0.0150
+
+        with col_sel1:
+            sel_input = st.selectbox("Selecionar Modelo de Entrada (Input):", lista_opcoes, key="sel_in")
+            if sel_input != "-- Digitar Manualmente --":
+                val_input_default = opcoes_modelos[sel_input]
+
+        with col_sel2:
+            sel_output = st.selectbox("Selecionar Modelo de Saída (Output):", lista_opcoes, key="sel_out")
+            if sel_output != "-- Digitar Manualmente --":
+                val_output_default = opcoes_modelos[sel_output]
+
+        st.markdown("") # Espaçamento
+
+        # Inputs Numéricos (Agora recebem o valor do selectbox como 'value')
+        c1, c2 = st.columns(2)
+        with c1:
+            price_input = st.number_input("Preço 1K Tokens Entrada ($):", value=float(val_input_default), format="%.6f")
             qtd_input = st.number_input("Qtd. Tokens Entrada:", value=1000, step=100)
         
-        with col2:
-            st.markdown("**Saída (Output)**")
-            price_output = st.number_input("Preço por 1K Tokens Saída ($):", value=0.0150, format="%.6f")
+        with c2:
+            price_output = st.number_input("Preço 1K Tokens Saída ($):", value=float(val_output_default), format="%.6f")
             qtd_output = st.number_input("Qtd. Tokens Saída:", value=500, step=100)
         
         custo_input = (qtd_input / 1000) * price_input
         custo_output = (qtd_output / 1000) * price_output
         total = custo_input + custo_output
+        
+        st.markdown("---")
+        cr1, cr2 = st.columns(2)
+        with cr1:
+            st.metric(label="Custo Total (USD)", value=f"$ {total:.6f}")
+        with cr2:
+            st.metric(label="Estimativa (BRL)", value=f"R$ {total * 6.0:.4f}", delta="Dólar R$ 6.00")
         
         st.markdown("---")
         col_res1, col_res2 = st.columns(2)
@@ -198,4 +226,5 @@ if items:
 
 elif st.session_state.get("contexto_busca"):
     # Caso raro onde o contexto existe mas a lista está vazia
+
     st.warning("Nenhum dado carregado.")
