@@ -5,11 +5,10 @@ import requests  # Para buscar o dólar
 from get_prices import fetch_prices 
 
 # ==============================================================================
-# 1. CONFIGURAÇÃO E ESTADO (SESSION STATE)
+# 1. CONFIGURAÇÃO E ESTADO
 # ==============================================================================
 st.set_page_config(page_title="Calculadora Azure", page_icon="☁️", layout="wide")
 
-# Garante que as variáveis existam na memória ao abrir o app
 if "dados_azure" not in st.session_state:
     st.session_state["dados_azure"] = None
 
@@ -17,29 +16,24 @@ if "contexto_busca" not in st.session_state:
     st.session_state["contexto_busca"] = {}
 
 # ==============================================================================
-# 2. FUNÇÕES AUXILIARES (Cotação e Filtros)
+# 2. FUNÇÕES AUXILIARES
 # ==============================================================================
 
-@st.cache_data(ttl=3600) # Cache de 1 hora para não chamar a API toda hora
+@st.cache_data(ttl=3600)
 def get_dolar_rate():
-    """Busca a cotação atual do Dólar (USD-BRL) na AwesomeAPI."""
+    """Busca cotação do dólar ou retorna 6.0 em caso de erro."""
     try:
-        # API pública e gratuita focada no mercado brasileiro
         url = "https://economia.awesomeapi.com.br/last/USD-BRL"
         response = requests.get(url, timeout=5)
         data = response.json()
-        # 'bid' é o valor de compra.
-        rate = float(data['USDBRL']['bid'])
-        return rate
-    except Exception as e:
-        st.error(f"Erro ao buscar dólar: {e}")
-        return 6.0 # Valor de fallback de segurança se a API falhar
+        return float(data['USDBRL']['bid'])
+    except:
+        return 6.0
 
 def find_most_recent_price(items):
-    """Filtra a lista de preços para achar o mais recente que já está ativo."""
+    """Encontra o preço ativo mais recente."""
     today = datetime.datetime.now(datetime.timezone.utc)
     active_items = []
-    
     for item in items:
         start_date_str = item.get('effectiveStartDate')
         if start_date_str and start_date_str.endswith('Z'):
@@ -48,191 +42,113 @@ def find_most_recent_price(items):
             start_date = datetime.datetime.fromisoformat(start_date_str)
             if start_date <= today:
                 active_items.append(item)
-        except (ValueError, TypeError):
+        except:
             continue 
-
-    if not active_items:
-        return None 
-        
-    active_items.sort(
-        key=lambda x: datetime.datetime.fromisoformat(x.get('effectiveStartDate').replace('Z', '+00:00')), 
-        reverse=True
-    )
+    if not active_items: return None 
+    active_items.sort(key=lambda x: x.get('effectiveStartDate'), reverse=True)
     return active_items[0]
 
 # ==============================================================================
-# 3. INTERFACE - CABEÇALHO E FILTROS
+# 3. INTERFACE E FILTROS
 # ==============================================================================
-# Busca o dólar logo no início
 dolar_hoje = get_dolar_rate()
 
-col_header1, col_header2 = st.columns([3, 1])
-with col_header1:
+col_head1, col_head2 = st.columns([3, 1])
+with col_head1:
     st.title("Calculadora de Preços Azure ☁️")
-with col_header2:
-    # Mostra o indicador do Dólar no topo
-    st.metric(label="Cotação Dólar (Hoje)", value=f"R$ {dolar_hoje:.3f}")
+with col_head2:
+    st.metric("Dólar Hoje (PTAX)", f"R$ {dolar_hoje:.3f}")
 
 regioes_map = {
-    'Leste (EUA)': 'eastus',
-    'Oeste (Europa)': 'westeurope',
-    'Leste (Ásia)': 'eastasia',
-    'Sul (Brasil)': 'brazilsouth',
+    'Leste (EUA)': 'eastus', 'Oeste (Europa)': 'westeurope',
+    'Leste (Ásia)': 'eastasia', 'Sul (Brasil)': 'brazilsouth',
     'Central (Índia)': 'centralindia'
 }
 
-col_top1, col_top2 = st.columns(2)
-with col_top1:
-    region_display = st.selectbox("Escolha uma Região do Azure:", regioes_map.keys())
-    region_choice = regioes_map[region_display]
+c1, c2 = st.columns(2)
+region_choice = regioes_map[c1.selectbox("Região:", regioes_map.keys())]
+service_choice = c2.selectbox("Serviço:", [
+    'Cognitive Services', 'Virtual Machines', 'Storage', 
+    'SQL Database', 'Azure Cosmos DB'
+])
 
-with col_top2:
-    servicos_azure = ['Cognitive Services', 'Virtual Machines', 'Storage', 'SQL Database', 'Azure Cosmos DB']
-    service_choice = st.selectbox("Escolha um Serviço do Azure:", servicos_azure)
-
-# ==============================================================================
-# 4. BOTÃO DE BUSCA
-# ==============================================================================
 if st.button("Buscar Preços Agora", type="primary"):
-    with st.spinner(f"Consultando API do Azure para '{service_choice}'..."):
-        items_api = fetch_prices(region_choice, service_choice)
-        if items_api:
-            st.session_state["dados_azure"] = items_api
-            st.session_state["contexto_busca"] = {"service": service_choice, "region": region_display}
+    with st.spinner("Consultando API..."):
+        data = fetch_prices(region_choice, service_choice)
+        if data:
+            st.session_state["dados_azure"] = data
+            st.session_state["contexto_busca"] = {"svc": service_choice, "reg": region_choice}
         else:
-            st.error("A API não retornou dados. Verifique sua conexão ou os filtros.")
-            st.session_state["dados_azure"] = None
+            st.error("Erro ao buscar dados.")
 
 # ==============================================================================
-# 5. LÓGICA DE EXIBIÇÃO
+# 4. EXIBIÇÃO DOS DADOS
 # ==============================================================================
 items = st.session_state["dados_azure"]
-contexto = st.session_state["contexto_busca"]
+ctx = st.session_state["contexto_busca"]
 
 if items:
-    # --- CASO 1: SERVIÇOS COGNITIVOS (IA) ---
-    if contexto.get("service") == 'Cognitive Services':
+    # Lógica específica para AI (Cognitive Services)
+    if ctx.get("svc") == 'Cognitive Services':
         st.divider()
+        # Filtro base para limpar itens irrelevantes
+        base = [i for i in items if 'OpenAI' in i.get('productName','') or 'gpt' in i.get('skuName','').lower()]
         
-        base_items = [i for i in items if 'OpenAI' in i.get('productName', '') or 'gpt' in i.get('skuName', '').lower()]
-        st.info(f"Base carregada: {len(base_items)} itens de IA encontrados em {contexto.get('region')}.")
-
-        st.markdown("### 🔍 Encontre seu Modelo")
-        search_term = st.text_input("Digite o nome do modelo para filtrar (ex: gpt 4o, gpt-35, mini):")
+        st.markdown("### 🔍 Filtrar Modelo")
+        filtro = st.text_input("Digite o nome (ex: gpt-4, mini):")
+        filtered = [i for i in base if filtro.lower() in str(i).lower()] if filtro else base
         
-        if search_term:
-            filtered_items = [i for i in base_items if search_term.lower() in str(i).lower()]
-        else:
-            filtered_items = base_items
-
-        st.write(f"Mostrando {len(filtered_items)} itens:")
+        st.write(f"Encontrados: {len(filtered)} itens")
         
-        if filtered_items:
-            df_show = pd.DataFrame(filtered_items)
-            cols_final = [c for c in ['productName', 'skuName', 'retailPrice', 'unitOfMeasure', 'effectiveStartDate'] if c in df_show.columns]
-            st.dataframe(df_show[cols_final], use_container_width=True)
-        else:
-            st.warning("Nenhum item corresponde à sua busca.")
+        if filtered:
+            df = pd.DataFrame(filtered)
+            cols = [c for c in ['skuName', 'retailPrice', 'unitOfMeasure'] if c in df.columns]
+            st.dataframe(df[cols], use_container_width=True)
+            
+            # CALCULADORA
+            st.markdown("---")
+            st.subheader("🧮 Calculadora de Tokens")
+            
+            opts = {f"{i['skuName']} ($ {i['retailPrice']})": i['retailPrice'] for i in filtered}
+            list_opts = ["-- Manual --"] + list(opts.keys())
+            
+            cc1, cc2 = st.columns(2)
+            # Inputs com seletores
+            sel_in = cc1.selectbox("Modelo de Entrada:", list_opts, key='in')
+            v_in = opts[sel_in] if sel_in != "-- Manual --" else 0.005
+            p_in = cc1.number_input("Preço Entrada ($):", value=float(v_in), format="%.6f")
+            q_in = cc1.number_input("Qtd Entrada:", value=1000, step=100)
+            
+            sel_out = cc2.selectbox("Modelo de Saída:", list_opts, key='out')
+            v_out = opts[sel_out] if sel_out != "-- Manual --" else 0.015
+            p_out = cc2.number_input("Preço Saída ($):", value=float(v_out), format="%.6f")
+            q_out = cc2.number_input("Qtd Saída:", value=500, step=100)
+            
+            total_usd = ((q_in/1000)*p_in) + ((q_out/1000)*p_out)
+            
+            st.divider()
+            cm1, cm2 = st.columns(2)
+            cm1.metric("Total (USD)", f"$ {total_usd:.6f}")
+            cm2.metric("Estimativa (BRL)", f"R$ {total_usd * dolar_hoje:.4f}", f"Dólar: {dolar_hoje:.3f}")
 
-        # --- CALCULADORA INTELIGENTE ---
-        st.markdown("---")
-        st.subheader("🧮 Calculadora de Custo (Tokens)")
-        st.caption("Selecione abaixo quais modelos usar para preencher os preços automaticamente.")
-
-        # Cria lista amigável para o dropdown
-        opcoes_modelos = {f"{item['skuName']} | $ {item['retailPrice']}": item['retailPrice'] for item in filtered_items}
-        lista_opcoes = ["-- Digitar Manualmente --"] + list(opcoes_modelos.keys())
-
-        col_sel1, col_sel2 = st.columns(2)
-        val_input_default = 0.0050
-        val_output_default = 0.0150
-
-        with col_sel1:
-            sel_input = st.selectbox("Selecionar Modelo de Entrada (Input):", lista_opcoes, key="sel_in")
-            if sel_input != "-- Digitar Manualmente --":
-                val_input_default = opcoes_modelos[sel_input]
-
-        with col_sel2:
-            sel_output = st.selectbox("Selecionar Modelo de Saída (Output):", lista_opcoes, key="sel_out")
-            if sel_output != "-- Digitar Manualmente --":
-                val_output_default = opcoes_modelos[sel_output]
-
-        st.markdown("") 
-
-        c1, c2 = st.columns(2)
-        with c1:
-            # O campo inicia com o valor selecionado no dropdown
-            price_input = st.number_input("Preço 1K Tokens Entrada ($):", value=float(val_input_default), format="%.6f")
-            qtd_input = st.number_input("Qtd. Tokens Entrada:", value=1000, step=100)
-        
-        with c2:
-            price_output = st.number_input("Preço 1K Tokens Saída ($):", value=float(val_output_default), format="%.6f")
-            qtd_output = st.number_input("Qtd. Tokens Saída:", value=500, step=100)
-        
-        custo_input = (qtd_input / 1000) * price_input
-        custo_output = (qtd_output / 1000) * price_output
-        total_usd = custo_input + custo_output
-        total_brl = total_usd * dolar_hoje
-        
-        st.markdown("---")
-        cr1, cr2 = st.columns(2)
-        with cr1:
-            st.metric(label="Custo Total (USD)", value=f"$ {total_usd:.6f}")
-        with cr2:
-            st.metric(
-                label="Estimativa (BRL)", 
-                value=f"R$ {total_brl:.4f}", 
-                delta=f"Cotação usada: R$ {dolar_hoje:.3f}"
-            )
-
-    # --- OUTROS SERVIÇOS ---
+    # Lógica para outros serviços
     else:
         st.divider()
-        most_recent_item = find_most_recent_price(items)
-        if most_recent_item:
-            st.success(f"Sucesso! {len(items)} preços encontrados.")
-            
-            price_usd = most_recent_item.get('retailPrice')
-            price_brl = price_usd * dolar_hoje
-            
-            col_res1, col_res2 = st.columns(2)
-            with col_res1:
-                st.metric(
-                    label=f"{most_recent_item.get('productName')}",
-                    value=f"$ {price_usd}",
-                    delta=f"por {most_recent_item.get('unitOfMeasure')}"
-                )
-            with col_res2:
-                st.metric(
-                    label="Preço Aproximado (BRL)",
-                    value=f"R$ {price_brl:.4f}",
-                    delta=f"Cotação: R$ {dolar_hoje:.3f}"
-                )
-                
+        recent = find_most_recent_price(items)
+        if recent:
+            usd = recent.get('retailPrice', 0)
+            st.metric(recent.get('productName'), f"$ {usd}", f"R$ {usd * dolar_hoje:.4f}")
             st.dataframe(pd.DataFrame(items))
         else:
-            st.warning("Dados encontrados, mas nenhum preço válido hoje.")
-
-elif st.session_state.get("contexto_busca"):
-    st.warning("Nenhum dado carregado.")
+            st.warning("Nenhum preço ativo encontrado.")
 
 # ==============================================================================
-# 6. RODAPÉ E FONTES (CREDIBILIDADE)
+# 5. RODAPÉ (Fora de todos os 'ifs' para aparecer sempre)
 # ==============================================================================
-st.markdown("---")
+st.markdown("<br><br><hr>", unsafe_allow_html=True) # Espaço extra e linha
 with st.container():
-    st.markdown("### 📚 Fontes de Dados e Transparência")
-    
-    col_f1, col_f2, col_f3 = st.columns(3)
-    
-    with col_f1:
-        st.markdown("**☁️ Preços de Nuvem**")
-        st.caption("Os valores são obtidos em tempo real diretamente da [Azure Retail Prices API](https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices).")
-    
-    with col_f2:
-        st.markdown("**💲 Cotação do Dólar**")
-        st.caption("Conversão baseada na taxa PTAX/Comercial fornecida pela [AwesomeAPI](https://docs.awesomeapi.com.br/api-de-moedas).")
-        
-    with col_f3:
-        st.markdown("**⚠️ Aviso Legal**")
-        st.caption("Os valores apresentados são **estimativas** e não incluem impostos locais (IOF, ISS) ou descontos de contrato Enterprise (EA).")
+    st.markdown("### 📚 Fontes e Referências")
+    f1, f2, f3 = st.columns(3)
+    f1.info("**Azure API**\n\nDados oficiais da Microsoft Retail Prices.")
+    f2.info(f"**Dólar PTAX**\n\nCotação via AwesomeAPI: R$ {dolar_hoje:.3f}")
+    f3.warning("**Aviso**\n\nValores estimados. Não inclui impostos.")
